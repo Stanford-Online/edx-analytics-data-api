@@ -99,7 +99,7 @@ class ConsolidatedAnswerDistributionSerializer(ProblemResponseAnswerDistribution
         return distribution
 
 
-class ProblemFirstFinalResponseAnswerDistributionSerializer(ProblemResponseAnswerDistributionSerializer):
+class ProblemFirstLastResponseAnswerDistributionSerializer(ProblemResponseAnswerDistributionSerializer):
     """
     Serializer for answer distribution table including counts of first and last response values.
     """
@@ -108,10 +108,10 @@ class ProblemFirstFinalResponseAnswerDistributionSerializer(ProblemResponseAnswe
     count = serializers.IntegerField()
 
     class Meta(ProblemResponseAnswerDistributionSerializer.Meta):
-        model = models.ProblemFirstFinalResponseAnswerDistribution
+        model = models.ProblemFirstLastResponseAnswerDistribution
         fields = ProblemResponseAnswerDistributionSerializer.Meta.fields + (
             'first_response_count',
-            'final_response_count',
+            'last_response_count',
         )
 
         # XXX: This should be uncommented when versioning is implemented.
@@ -125,22 +125,22 @@ class ProblemFirstFinalResponseAnswerDistributionSerializer(ProblemResponseAnswe
         """
 
         count = attrs.pop('count', None)
-        distribution = super(ProblemFirstFinalResponseAnswerDistributionSerializer, self).restore_object(
+        distribution = super(ProblemFirstLastResponseAnswerDistributionSerializer, self).restore_object(
             attrs, instance)
         distribution.count = count
 
         return distribution
 
 
-class ConsolidatedFirstFinalAnswerDistributionSerializer(ProblemFirstFinalResponseAnswerDistributionSerializer):
+class ConsolidatedFirstLastAnswerDistributionSerializer(ProblemFirstLastResponseAnswerDistributionSerializer):
     """
     Serializer for consolidated answer distributions including first attempt counts.
     """
 
     consolidated_variant = serializers.BooleanField()
 
-    class Meta(ProblemFirstFinalResponseAnswerDistributionSerializer.Meta):
-        fields = ProblemFirstFinalResponseAnswerDistributionSerializer.Meta.fields + ('consolidated_variant',)
+    class Meta(ProblemFirstLastResponseAnswerDistributionSerializer.Meta):
+        fields = ProblemFirstLastResponseAnswerDistributionSerializer.Meta.fields + ('consolidated_variant',)
 
     # pylint: disable=super-on-old-class
     def restore_object(self, attrs, instance=None):
@@ -149,7 +149,7 @@ class ConsolidatedFirstFinalAnswerDistributionSerializer(ProblemFirstFinalRespon
         """
 
         consolidated_variant = attrs.pop('consolidated_variant', None)
-        distribution = super(ConsolidatedFirstFinalAnswerDistributionSerializer, self).restore_object(attrs, instance)
+        distribution = super(ConsolidatedFirstLastAnswerDistributionSerializer, self).restore_object(attrs, instance)
         distribution.consolidated_variant = consolidated_variant
 
         return distribution

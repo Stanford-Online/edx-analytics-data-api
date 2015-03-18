@@ -121,14 +121,14 @@ class ProblemResponseAnswerDistribution(BaseProblemResponseAnswerDistribution):
     count = models.IntegerField()
 
 
-class ProblemFirstFinalResponseAnswerDistribution(BaseProblemResponseAnswerDistribution):
-    """ Updated model for answer_distribution table with counts of first and final attempts at problems. """
+class ProblemFirstLastResponseAnswerDistribution(BaseProblemResponseAnswerDistribution):
+    """ Updated model for answer_distribution table with counts of first and last attempts at problems. """
 
     class Meta(BaseProblemResponseAnswerDistribution.Meta):
         verbose_name = 'first_last_answer_distribution'
 
     first_response_count = models.IntegerField()
-    final_response_count = models.IntegerField()
+    last_response_count = models.IntegerField()
 
 
 class CourseEnrollmentByCountry(BaseCourseEnrollment):

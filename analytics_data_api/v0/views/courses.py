@@ -637,8 +637,8 @@ class ProblemsListView(BaseCourseView):
         aggregation_query = """
 SELECT
     module_id,
-    SUM(final_response_count) AS total_submissions,
-    SUM(CASE WHEN correct=1 THEN final_response_count ELSE 0 END) AS correct_submissions,
+    SUM(last_response_count) AS total_submissions,
+    SUM(CASE WHEN correct=1 THEN last_response_count ELSE 0 END) AS correct_submissions,
     GROUP_CONCAT(DISTINCT part_id) AS part_ids,
     MAX(created) AS created
 FROM answer_distribution
@@ -661,10 +661,10 @@ GROUP BY module_id;
                 cursor.execute("PRAGMA table_info(answer_distribution)")
                 column_names = [row[1] for row in cursor.fetchall()]
 
-            if u'final_response_count' in column_names:
+            if u'last_response_count' in column_names:
                 cursor.execute(aggregation_query, [self.course_id])
             else:
-                cursor.execute(aggregation_query.replace('final_response_count', 'count'), [self.course_id])
+                cursor.execute(aggregation_query.replace('last_response_count', 'count'), [self.course_id])
 
             rows = dictfetchall(cursor)
 

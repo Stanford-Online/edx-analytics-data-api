@@ -78,7 +78,7 @@ def consolidate_answers(problem):
                     consolidated_answer.count += answer.count
                 else:
                     consolidated_answer.first_response_count += answer.first_response_count
-                    consolidated_answer.final_response_count += answer.final_response_count
+                    consolidated_answer.last_response_count += answer.last_response_count
             else:
                 consolidated_answer = answer
 

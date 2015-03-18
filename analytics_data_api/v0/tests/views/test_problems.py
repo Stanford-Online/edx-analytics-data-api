@@ -9,7 +9,7 @@ from django_dynamic_fixture import G
 import json
 
 from analytics_data_api.v0 import models
-from analytics_data_api.v0.serializers import ProblemFirstFinalResponseAnswerDistributionSerializer, \
+from analytics_data_api.v0.serializers import ProblemFirstLastResponseAnswerDistributionSerializer, \
     GradeDistributionSerializer, SequentialOpenDistributionSerializer
 from analyticsdataserver.tests import TestCaseWithAuthentication
 
@@ -32,7 +32,7 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
         cls.question_text = 'Question Text'
 
         cls.ad1 = G(
-            models.ProblemFirstFinalResponseAnswerDistribution,
+            models.ProblemFirstLastResponseAnswerDistribution,
             course_id=cls.course_id,
             module_id=cls.module_id1,
             part_id=cls.part_id,
@@ -43,10 +43,10 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
             question_text=cls.question_text,
             variant=123,
             first_response_count=1,
-            final_reponse_count=3,
+            last_response_count=3,
         )
         cls.ad2 = G(
-            models.ProblemFirstFinalResponseAnswerDistribution,
+            models.ProblemFirstLastResponseAnswerDistribution,
             course_id=cls.course_id,
             module_id=cls.module_id1,
             part_id=cls.part_id,
@@ -57,16 +57,16 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
             question_text=cls.question_text,
             variant=345,
             first_reponse_count=0,
-            final_response_count=2,
+            last_response_count=2,
         )
         cls.ad3 = G(
-            models.ProblemFirstFinalResponseAnswerDistribution,
+            models.ProblemFirstLastResponseAnswerDistribution,
             course_id=cls.course_id,
             module_id=cls.module_id1,
             part_id=cls.part_id,
         )
         cls.ad4 = G(
-            models.ProblemFirstFinalResponseAnswerDistribution,
+            models.ProblemFirstLastResponseAnswerDistribution,
             course_id=cls.course_id,
             module_id=cls.module_id2,
             part_id=cls.part_id,
@@ -74,7 +74,7 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
             correct=True,
         )
         cls.ad5 = G(
-            models.ProblemFirstFinalResponseAnswerDistribution,
+            models.ProblemFirstLastResponseAnswerDistribution,
             course_id=cls.course_id,
             module_id=cls.module_id2,
             part_id=cls.part_id,
@@ -82,7 +82,7 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
             correct=True
         )
         cls.ad6 = G(
-            models.ProblemFirstFinalResponseAnswerDistribution,
+            models.ProblemFirstLastResponseAnswerDistribution,
             course_id=cls.course_id,
             module_id=cls.module_id2,
             part_id=cls.part_id,
@@ -95,13 +95,13 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
         response = self.authenticated_get('/api/v0/problems/%s%s' % (self.module_id2, self.path))
         self.assertEquals(response.status_code, 200)
 
-        expected_data = models.ProblemFirstFinalResponseAnswerDistribution.objects.filter(module_id=self.module_id2)
+        expected_data = models.ProblemFirstLastResponseAnswerDistribution.objects.filter(module_id=self.module_id2)
 
         # XXX: Remove when versioning is implemented.
         for datum in expected_data:
-            datum.count = datum.final_response_count
+            datum.count = datum.last_response_count
 
-        expected_data = [ProblemFirstFinalResponseAnswerDistributionSerializer(answer).data for answer in expected_data]
+        expected_data = [ProblemFirstLastResponseAnswerDistributionSerializer(answer).data for answer in expected_data]
 
         for answer in expected_data:
             answer['consolidated_variant'] = False
@@ -120,13 +120,13 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
         expected_data = [self.ad1, self.ad3]
 
         expected_data[0].first_response_count += self.ad2.first_response_count
-        expected_data[0].final_response_count += self.ad2.final_response_count
+        expected_data[0].last_response_count += self.ad2.last_response_count
 
         # XXX: Remove when versioning is implemented.
         for datum in expected_data:
-            datum.count = datum.final_response_count
+            datum.count = datum.last_response_count
 
-        expected_data = [ProblemFirstFinalResponseAnswerDistributionSerializer(answer).data for answer in expected_data]
+        expected_data = [ProblemFirstLastResponseAnswerDistributionSerializer(answer).data for answer in expected_data]
 
         expected_data[0]['variant'] = None
         expected_data[0]['consolidated_variant'] = True

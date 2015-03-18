@@ -10,12 +10,12 @@ from rest_framework import generics
 from analytics_data_api.v0.models import (
     GradeDistribution,
     ProblemResponseAnswerDistribution,
-    ProblemFirstFinalResponseAnswerDistribution,
+    ProblemFirstLastResponseAnswerDistribution,
     SequentialOpenDistribution,
 )
 from analytics_data_api.v0.serializers import (
     ConsolidatedAnswerDistributionSerializer,
-    ConsolidatedFirstFinalAnswerDistributionSerializer,
+    ConsolidatedFirstLastAnswerDistributionSerializer,
     GradeDistributionSerializer,
     SequentialOpenDistributionSerializer,
 )
@@ -63,8 +63,8 @@ class ProblemResponseAnswerDistributionView(generics.ListAPIView):
             queryset = list(ProblemResponseAnswerDistribution.objects.filter(module_id=problem_id).order_by('part_id'))
         # pylint: disable=catching-non-exception
         except OperationalError:
-            self.serializer_class = ConsolidatedFirstFinalAnswerDistributionSerializer
-            queryset = list(ProblemFirstFinalResponseAnswerDistribution.objects.filter(
+            self.serializer_class = ConsolidatedFirstLastAnswerDistributionSerializer
+            queryset = list(ProblemFirstLastResponseAnswerDistribution.objects.filter(
                 module_id=problem_id).order_by('part_id'))
 
         consolidated_rows = []
@@ -75,7 +75,7 @@ class ProblemResponseAnswerDistributionView(generics.ListAPIView):
         # XXX: Remove this loop when proper versioning is implemented
         for row in consolidated_rows:
             if 'count' not in dir(row):
-                row.count = row.final_response_count
+                row.count = row.last_response_count
 
         return consolidated_rows
 
