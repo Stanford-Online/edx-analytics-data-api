@@ -96,6 +96,11 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
         self.assertEquals(response.status_code, 200)
 
         expected_data = models.ProblemFirstFinalResponseAnswerDistribution.objects.filter(module_id=self.module_id2)
+
+        # XXX: Remove when versioning is implemented.
+        for datum in expected_data:
+            datum.count = datum.final_response_count
+
         expected_data = [ProblemFirstFinalResponseAnswerDistributionSerializer(answer).data for answer in expected_data]
 
         for answer in expected_data:
@@ -112,16 +117,19 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
             '/api/v0/problems/{0}{1}'.format(self.module_id1, self.path))
         self.assertEquals(response.status_code, 200)
 
-        expected_data = [
-            ProblemFirstFinalResponseAnswerDistributionSerializer(self.ad1).data,
-            ProblemFirstFinalResponseAnswerDistributionSerializer(self.ad3).data,
-        ]
+        expected_data = [self.ad1, self.ad3]
 
-        expected_data[0]['first_response_count'] += self.ad2.first_response_count
-        expected_data[0]['final_response_count'] += self.ad2.final_response_count
+        expected_data[0].first_response_count += self.ad2.first_response_count
+        expected_data[0].final_response_count += self.ad2.final_response_count
+
+        # XXX: Remove when versioning is implemented.
+        for datum in expected_data:
+            datum.count = datum.final_response_count
+
+        expected_data = [ProblemFirstFinalResponseAnswerDistributionSerializer(answer).data for answer in expected_data]
+
         expected_data[0]['variant'] = None
         expected_data[0]['consolidated_variant'] = True
-
         expected_data[1]['consolidated_variant'] = False
 
         response.data = set([json.dumps(answer) for answer in response.data])

@@ -61,6 +61,7 @@ class ProblemResponseAnswerDistributionView(generics.ListAPIView):
 
         try:
             queryset = list(ProblemResponseAnswerDistribution.objects.filter(module_id=problem_id).order_by('part_id'))
+        # pylint: disable=catching-non-exception
         except OperationalError:
             self.serializer_class = ConsolidatedFirstFinalAnswerDistributionSerializer
             queryset = list(ProblemFirstFinalResponseAnswerDistribution.objects.filter(
@@ -70,6 +71,11 @@ class ProblemResponseAnswerDistributionView(generics.ListAPIView):
 
         for _, part in groupby(queryset, lambda x: x.part_id):
             consolidated_rows += consolidate_answers(list(part))
+
+        # XXX: Remove this loop when proper versioning is implemented
+        for row in consolidated_rows:
+            if 'count' not in dir(row):
+                row.count = row.final_response_count
 
         return consolidated_rows
 
