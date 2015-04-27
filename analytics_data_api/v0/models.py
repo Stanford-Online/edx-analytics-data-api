@@ -162,6 +162,7 @@ class CourseVideoSummary(models.Model):
 
     course_id = models.CharField(db_index=True, max_length=255)
     video_id = models.CharField(db_index=True, max_length=255)
+    date = models.DateTimeField()
     total_activity = models.IntegerField()
     unique_users = models.IntegerField()
     created = models.DateTimeField(auto_now_add=True)

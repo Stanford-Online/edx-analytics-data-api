@@ -645,14 +645,14 @@ class CourseProblemsListViewTests(DemoCourseMixin, TestCaseWithAuthentication):
 
 
 class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
-    def _get_data(self, course_id=None, video_id):
+    def _get_data(self, course_id=None, video_id=None):
         """
         Retrieve data for the specified course.
         """
 
         course_id = course_id or self.course_id
         video_id = video_id or self.video_id
-        url = '/api/v0/courses/{}/problems/'.format(course_id)
+        url = '/api/v0/courses/{}/videos/'.format(course_id)
         return self.authenticated_get(url)
 
     def test_get(self):
@@ -661,7 +661,8 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
         """
 
         G(models.CourseVideoSummary)
-
+        
+        video_id = 'i4x-DB-Indexes-video-vid-transactions_properties-slice1'
         created = datetime.datetime.utcnow()
 
         # raw objects inserted
@@ -670,20 +671,17 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
 
         for date in dates:
             row = G(models.CourseVideoSummary, course_id=self.course_id, video_id=video_id, total_activity=100,
-               unique_users=100, created=created)
-            raw_data.append(rows)
+               unique_users=20, date=date, created=created)
 
         expected = [
             {
-                'self.course_id': self.course_id,
-                'self.video_id': self.video_id,
-                'total_activity': 300,
-                'unique_users': 300,
-                'created': created.strftime(settings.DATETIME_FORMAT)
-            },
+                'video_id': u'i4x-DB-Indexes-video-vid-transactions_properties-slice1', 
+                'total_activity': 300, 
+                'unique_users': 60
+            }
         ]
 
-        response = self._get_data(self.course_id)
+        response = self._get_data(self.course_id, video_id)
         self.assertEquals(response.status_code, 200)
         self.assertListEqual(response.data, expected)
 
