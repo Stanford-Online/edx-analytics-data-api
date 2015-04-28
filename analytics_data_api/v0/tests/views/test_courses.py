@@ -645,7 +645,8 @@ class CourseProblemsListViewTests(DemoCourseMixin, TestCaseWithAuthentication):
 
 
 class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
-    def _get_data(self, course_id=None, video_id=None):
+
+    def _get_list_data(self, course_id=None, video_id=None):
         """
         Retrieve data for the specified course.
         """
@@ -654,6 +655,30 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
         video_id = video_id or self.video_id
         url = '/api/v0/courses/{}/videos/'.format(course_id)
         return self.authenticated_get(url)
+    
+    def _get_summary_data(self, course_id=None, video_id=None, start_date=None, end_date=None):
+        """
+        Retrieve data for the specified video
+        """
+        
+        params = {}
+        if start_date:
+            params['start_date'] = start_date
+
+        if end_date:
+            params['end_date'] = end_date
+
+        querystring = urllib.urlencode(params)
+
+
+        course_id = course_id or self.course_id
+        video_id = video_id or self.video_id
+        url = '/api/v0/courses/{}/videos/{}/summary/'.format(course_id, video_id)
+        
+        if querystring:
+            url += '?{0}'.format(querystring)
+        
+        return self.authenticated_get(url)
 
     def test_get(self):
         """
@@ -661,36 +686,69 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
         """
 
         G(models.CourseVideoSummary)
-        
+
         video_id = 'i4x-DB-Indexes-video-vid-transactions_properties-slice1'
         created = datetime.datetime.utcnow()
 
-        # raw objects inserted
-        raw_data = []
         dates = [datetime.datetime(2012, 12, 1), datetime.datetime(2013, 12, 1), datetime.datetime(2014, 12, 1)]
 
+        # Objects inserted
         for date in dates:
-            row = G(models.CourseVideoSummary, course_id=self.course_id, video_id=video_id, total_activity=100,
-               unique_users=20, date=date, created=created)
+            G(
+                models.CourseVideoSummary,
+                course_id=self.course_id,
+                video_id=video_id,
+                total_activity=100,
+                unique_users=20,
+                date=date,
+                created=created
+            )
 
-        expected = [
+        expected_list = [
             {
-                'video_id': u'i4x-DB-Indexes-video-vid-transactions_properties-slice1', 
-                'total_activity': 300, 
+                'video_id': u'i4x-DB-Indexes-video-vid-transactions_properties-slice1',
+                'total_activity': 300,
                 'unique_users': 60
             }
         ]
 
-        response = self._get_data(self.course_id, video_id)
+        # Test video list API
+        response = self._get_list_data(self.course_id, video_id)
         self.assertEquals(response.status_code, 200)
-        self.assertListEqual(response.data, expected)
+        self.assertListEqual(response.data, expected_list)
+        
+        expected_summary = {
+            'total_activity': 300,
+            'unique_users': 60
+        }
+
+        # Test video summary API
+        response = self._get_summary_data(self.course_id, video_id)
+        self.assertEquals(response.status_code, 200)
+        self.assertEqual(response.data, expected_summary)
+        
+        expected_summary = {
+            'total_activity': 200,
+            'unique_users': 40
+        }
+
+        # Test video summary API with date args
+        response = self._get_summary_data(self.course_id, video_id, '2012-12-1', '2013-12-1')
+        self.assertEquals(response.status_code, 200)
+        self.assertEqual(response.data, expected_summary)
+        
+        # Test video summary API with 404 response
+        video_id = 'dummy_video'
+        response = self._get_summary_data(self.course_id, video_id)
+        self.assertEqual(response.status_code, 404)
+        
 
     def test_get_404(self):
         """
         The view should return 404 if no data exists for the course.
         """
 
-        response = self._get_data('foo/bar/course')
+        response = self._get_list_data('foo/bar/course')
         self.assertEquals(response.status_code, 404)
 
     def test_get_with_start_end(self):
@@ -698,4 +756,3 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
         Docstring
         """
         pass
-

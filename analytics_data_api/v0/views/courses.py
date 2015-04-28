@@ -6,7 +6,7 @@ import warnings
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import connections
-from django.db.models import Max
+from django.db.models import Max, Sum
 from django.http import Http404
 from django.utils.timezone import make_aware, utc
 from rest_framework import generics
@@ -715,27 +715,22 @@ class CourseVideoListView(BaseCourseView):
     allow_empty = False
 
     def get_queryset(self):
-        sql = """
-SELECT
-    video_id,
-    SUM(total_activity) AS total_activity,
-    SUM(unique_users) AS unique_users
-FROM course_video_summary
-WHERE course_id = %s
-AND date >= %s
-AND date <= %s
-GROUP BY video_id;
-        """
 
         if not self.start_date:
             self.start_date = datetime.datetime.utcfromtimestamp(0)
         if not self.end_date:
             self.end_date = datetime.datetime.now()
 
-        connection = connections[settings.ANALYTICS_DATABASE]
-        with connection.cursor() as cursor:
-            cursor.execute(sql, [self.course_id, self.start_date, self.end_date])
-            rows = dictfetchall(cursor)
+        rows = models.CourseVideoSummary.objects.filter(
+            course_id=self.course_id,
+            date__gte=self.start_date,
+            date__lte=self.end_date,
+        ).values(
+            'video_id',
+        ).annotate(
+            total_activity=Sum('total_activity'),
+            unique_users=Sum('unique_users')
+        )
 
         for row in rows:
             # Convert the aggregated decimal fields to integers
@@ -795,7 +790,6 @@ class CourseVideoSummaryView(generics.RetrieveAPIView):
     course_id = None
     video_id = None
 
-
     def get(self, request, *args, **kwargs):
         self.course_id = self.kwargs.get('course_id')
         self.video_id = self.kwargs.get('video_id')
@@ -817,52 +811,34 @@ class CourseVideoSummaryView(generics.RetrieveAPIView):
         return super(CourseVideoSummaryView, self).get(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        sql = """
-SELECT
-    SUM(total_activity) AS total_activity,
-    SUM(unique_users) AS unique_users,
-    COUNT(*) as num_rows
-FROM course_video_summary
-WHERE course_id = %s
-AND video_id = %s
-AND date >= %s
-AND date <= %s
-GROUP BY video_id;
-        """
 
         if not self.start_date:
             self.start_date = datetime.datetime.utcfromtimestamp(0)
         if not self.end_date:
             self.end_date = datetime.datetime.now()
 
-        connection = connections[settings.ANALYTICS_DATABASE]
-        with connection.cursor() as cursor:
-            cursor.execute(sql, [
-                self.course_id,
-                self.video_id,
-                self.start_date,
-                self.end_date,
-            ])
-            rows = dictfetchall(cursor)
+        rows = models.CourseVideoSummary.objects.filter(
+            course_id=self.course_id,
+            video_id=self.video_id,
+            date__gte=self.start_date,
+            date__lte=self.end_date,
+        ).aggregate(
+            total_activity=Sum('total_activity'),
+            unique_users=Sum('unique_users')
+        )
 
-        # we want to make sure that the video_id is present within the
+        # We want to make sure that the video_id is present within the
         # course, but the base query is an aggregation. Therefore, we
-        # rely on a row count to determine whether to report an error
+        # rely on total_activity being None
         # if the video is not in this course
-
-        if len(rows) == 0:
-            raise Http404
-
-        row = rows[0]
-        row_agg_count = int(row['num_rows'])
-
-        if row_agg_count == 0:
+        if len(rows) == 0 or rows['total_activity'] == None:
             raise Http404
 
         # Convert the aggregated decimal fields to integers
-        row['total_activity'] = int(row['total_activity'])
-        row['unique_users'] = int(row['unique_users'])
-        return row
+        # Only one row in result set.
+        rows['total_activity'] = int(rows['total_activity'])
+        rows['unique_users'] = int(rows['unique_users'])
+        return rows
 
 
 class CourseVideoSeekTimesView(BaseCourseView):
@@ -903,7 +879,7 @@ class CourseVideoSeekTimesView(BaseCourseView):
     allow_empty = False
 
     def get(self, request, *args, **kwargs):
-        #pylint: disable=attribute-defined-outside-init
+        # pylint: disable=attribute-defined-outside-init
         self.video_id = self.kwargs.get('video_id')
         return super(CourseVideoSeekTimesView, self).get(request, *args, **kwargs)
 
