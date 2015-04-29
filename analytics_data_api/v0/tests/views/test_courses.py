@@ -644,23 +644,13 @@ class CourseProblemsListViewTests(DemoCourseMixin, TestCaseWithAuthentication):
         self.assertEquals(response.status_code, 404)
 
 
-class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
+class CourseVideoView(DemoCourseMixin, TestCaseWithAuthentication):
 
-    def _get_list_data(self, course_id=None, video_id=None):
+    def _get_list_data(self, course_id=None, video_id=None, start_date=None, end_date=None):
         """
         Retrieve data for the specified course.
         """
 
-        course_id = course_id or self.course_id
-        video_id = video_id or self.video_id
-        url = '/api/v0/courses/{}/videos/'.format(course_id)
-        return self.authenticated_get(url)
-    
-    def _get_summary_data(self, course_id=None, video_id=None, start_date=None, end_date=None):
-        """
-        Retrieve data for the specified video
-        """
-        
         params = {}
         if start_date:
             params['start_date'] = start_date
@@ -670,14 +660,36 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
 
         querystring = urllib.urlencode(params)
 
+        course_id = course_id or self.course_id
+        video_id = video_id or self.video_id
+        url = '/api/v0/courses/{}/videos/'.format(course_id)
+
+        if querystring:
+            url += '?{0}'.format(querystring)
+
+        return self.authenticated_get(url)
+
+    def _get_summary_data(self, course_id=None, video_id=None, start_date=None, end_date=None):
+        """
+        Retrieve data for the specified video
+        """
+
+        params = {}
+        if start_date:
+            params['start_date'] = start_date
+
+        if end_date:
+            params['end_date'] = end_date
+
+        querystring = urllib.urlencode(params)
 
         course_id = course_id or self.course_id
         video_id = video_id or self.video_id
         url = '/api/v0/courses/{}/videos/{}/summary/'.format(course_id, video_id)
-        
+
         if querystring:
             url += '?{0}'.format(querystring)
-        
+
         return self.authenticated_get(url)
 
     def test_get(self):
@@ -692,7 +704,7 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
 
         dates = [datetime.datetime(2012, 12, 1), datetime.datetime(2013, 12, 1), datetime.datetime(2014, 12, 1)]
 
-        # Objects inserted
+        # Test data inserted
         for date in dates:
             G(
                 models.CourseVideoSummary,
@@ -716,7 +728,24 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
         response = self._get_list_data(self.course_id, video_id)
         self.assertEquals(response.status_code, 200)
         self.assertListEqual(response.data, expected_list)
-        
+
+        expected_list = [
+            {
+                'video_id': u'i4x-DB-Indexes-video-vid-transactions_properties-slice1',
+                'total_activity': 200,
+                'unique_users': 40
+            }
+        ]
+
+        # Test video list API with date args
+        response = self._get_list_data(self.course_id, video_id, '2012-12-1', '2013-12-1')
+        self.assertEquals(response.status_code, 200)
+        self.assertListEqual(response.data, expected_list)
+
+        # Test video list API with 404 response
+        response = self._get_list_data('dummy_course_id', video_id)
+        self.assertEqual(response.status_code, 404)
+
         expected_summary = {
             'total_activity': 300,
             'unique_users': 60
@@ -726,7 +755,7 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
         response = self._get_summary_data(self.course_id, video_id)
         self.assertEquals(response.status_code, 200)
         self.assertEqual(response.data, expected_summary)
-        
+
         expected_summary = {
             'total_activity': 200,
             'unique_users': 40
@@ -736,23 +765,107 @@ class CourseVideoSummaryView(DemoCourseMixin, TestCaseWithAuthentication):
         response = self._get_summary_data(self.course_id, video_id, '2012-12-1', '2013-12-1')
         self.assertEquals(response.status_code, 200)
         self.assertEqual(response.data, expected_summary)
-        
+
         # Test video summary API with 404 response
-        video_id = 'dummy_video'
-        response = self._get_summary_data(self.course_id, video_id)
+        response = self._get_summary_data(self.course_id, 'dummy_video')
         self.assertEqual(response.status_code, 404)
-        
 
-    def test_get_404(self):
+
+class CourseVideoSeekTimesView(DemoCourseMixin, TestCaseWithAuthentication):
+
+    def _get_data(self, course_id=None, video_id=None, start_date=None, end_date=None):
         """
-        The view should return 404 if no data exists for the course.
+        Retrieve data for the specified course.
         """
 
-        response = self._get_list_data('foo/bar/course')
+        params = {}
+        if start_date:
+            params['start_date'] = start_date
+
+        if end_date:
+            params['end_date'] = end_date
+
+        querystring = urllib.urlencode(params)
+
+        course_id = course_id or self.course_id
+        video_id = video_id or self.video_id
+
+        url = '/api/v0/courses/{}/videos/{}/seek_times'.format(course_id, video_id)
+
+        if querystring:
+            url += '?{0}'.format(querystring)
+
+        return self.authenticated_get(url)
+
+    def test_get(self):
+        """
+        The view should return data when data exists for the course.
+        """
+
+        G(models.CourseVideoSeekTimes)
+
+        video_id = 'i4x-DB-Indexes-video-vid-transactions_properties-slice1'
+        created = datetime.datetime.utcnow()
+
+        dates = [datetime.datetime(2012, 12, 1), datetime.datetime(2013, 12, 1), datetime.datetime(2014, 12, 1)]
+        seek_intervals = [10, 20, 40]
+        num_seeks = [2, 4, 6]
+        num_users = [10, 20, 30]
+
+        # Test data inserted
+        for index, date in enumerate(dates):
+            G(
+                models.CourseVideoSeekTimes,
+                course_id=self.course_id,
+                video_id=video_id,
+                date=date,
+                seek_interval=seek_intervals[index],
+                num_seeks=num_seeks[index],
+                num_users=num_users[index],
+                created=created
+            )
+
+        expected_list = [
+            {
+                'seek_interval': 10,
+                'total_activity': 2,
+                'unique_daily_users': 10,
+            },
+            {
+                'seek_interval': 20,
+                'total_activity': 4,
+                'unique_daily_users': 20,
+            },
+            {
+                'seek_interval': 40,
+                'total_activity': 6,
+                'unique_daily_users': 30,
+            },
+        ]
+
+        # Test video seek time API
+        response = self._get_data(self.course_id, video_id)
+        self.assertEquals(response.status_code, 200)
+        self.assertListEqual(response.data, expected_list)
+
+        expected_list = [
+            {
+                'seek_interval': 10,
+                'total_activity': 2,
+                'unique_daily_users': 10,
+            },
+            {
+                'seek_interval': 20,
+                'total_activity': 4,
+                'unique_daily_users': 20,
+            },
+        ]
+
+        # Test video seek time API with date args
+        response = self._get_data(self.course_id, video_id, '2012-12-1', '2013-12-1')
+        self.assertEquals(response.status_code, 200)
+        self.assertListEqual(response.data, expected_list)
+
+        # Test video seek time API with 404 response
+        response = self._get_data(self.course_id, 'dummy_video')
         self.assertEquals(response.status_code, 404)
-
-    def test_get_with_start_end(self):
-        """
-        Docstring
-        """
-        pass

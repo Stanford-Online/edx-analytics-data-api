@@ -6,7 +6,7 @@ import warnings
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import connections
-from django.db.models import Max, Sum
+from django.db.models import Max, Sum, Avg
 from django.http import Http404
 from django.utils.timezone import make_aware, utc
 from rest_framework import generics
@@ -879,33 +879,29 @@ class CourseVideoSeekTimesView(BaseCourseView):
     allow_empty = False
 
     def get(self, request, *args, **kwargs):
+
         # pylint: disable=attribute-defined-outside-init
         self.video_id = self.kwargs.get('video_id')
         return super(CourseVideoSeekTimesView, self).get(request, *args, **kwargs)
 
     def get_queryset(self):
-        sql = """
-SELECT
-    seek_interval,
-    SUM(num_seeks) AS total_activity,
-    AVG(num_users) AS unique_daily_users
-FROM course_video_seek_times
-WHERE course_id = %s
-    AND video_id = %s
-    AND date >= %s
-    AND date <= %s
-GROUP BY seek_interval;
-        """
 
         if not self.start_date:
             self.start_date = datetime.datetime.utcfromtimestamp(0)
         if not self.end_date:
             self.end_date = datetime.datetime.now()
 
-        connection = connections[settings.ANALYTICS_DATABASE]
-        with connection.cursor() as cursor:
-            cursor.execute(sql, [self.course_id, self.video_id, self.start_date, self.end_date])
-            rows = dictfetchall(cursor)
+        rows = models.CourseVideoSeekTimes.objects.filter(
+            course_id=self.course_id,
+            video_id=self.video_id,
+            date__gte=self.start_date,
+            date__lte=self.end_date,
+        ).values(
+            'seek_interval',
+        ).annotate(
+            total_activity=Sum('num_seeks'),
+            unique_daily_users=Avg('num_users')
+        )
 
         # return api results ordered by seek time
         rows = sorted(rows, key=itemgetter('seek_interval'))
