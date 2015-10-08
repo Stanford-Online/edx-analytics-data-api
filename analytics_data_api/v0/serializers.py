@@ -99,62 +99,6 @@ class ConsolidatedAnswerDistributionSerializer(ProblemResponseAnswerDistribution
         return distribution
 
 
-class ProblemFirstLastResponseAnswerDistributionSerializer(ProblemResponseAnswerDistributionSerializer):
-    """
-    Serializer for answer distribution table including counts of first and last response values.
-    """
-
-    # XXX: This field should be removed when versioning is implemented.
-    count = serializers.IntegerField()
-
-    class Meta(ProblemResponseAnswerDistributionSerializer.Meta):
-        model = models.ProblemFirstLastResponseAnswerDistribution
-        fields = ProblemResponseAnswerDistributionSerializer.Meta.fields + (
-            'first_response_count',
-            'last_response_count',
-        )
-
-        # XXX: This should be uncommented when versioning is implemented.
-        # fields = tuple([field for field in fields if field != 'count'])
-
-    # XXX: This duplicate field should be removed when correct versioning is implemented.
-    # pylint: disable=super-on-old-class
-    def restore_object(self, attrs, instance=None):
-        """
-        Pops and restores non-model field.
-        """
-
-        count = attrs.pop('count', None)
-        distribution = super(ProblemFirstLastResponseAnswerDistributionSerializer, self).restore_object(
-            attrs, instance)
-        distribution.count = count
-
-        return distribution
-
-
-class ConsolidatedFirstLastAnswerDistributionSerializer(ProblemFirstLastResponseAnswerDistributionSerializer):
-    """
-    Serializer for consolidated answer distributions including first attempt counts.
-    """
-
-    consolidated_variant = serializers.BooleanField()
-
-    class Meta(ProblemFirstLastResponseAnswerDistributionSerializer.Meta):
-        fields = ProblemFirstLastResponseAnswerDistributionSerializer.Meta.fields + ('consolidated_variant',)
-
-    # pylint: disable=super-on-old-class
-    def restore_object(self, attrs, instance=None):
-        """
-        Pops and restores non-model field.
-        """
-
-        consolidated_variant = attrs.pop('consolidated_variant', None)
-        distribution = super(ConsolidatedFirstLastAnswerDistributionSerializer, self).restore_object(attrs, instance)
-        distribution.consolidated_variant = consolidated_variant
-
-        return distribution
-
-
 class GradeDistributionSerializer(ModelSerializerWithCreatedField):
     """
     Representation of the grade_distribution table without id
