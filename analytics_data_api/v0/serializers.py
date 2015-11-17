@@ -104,9 +104,6 @@ class ProblemFirstLastResponseAnswerDistributionSerializer(ProblemResponseAnswer
     Serializer for answer distribution table including counts of first and last response values.
     """
 
-    # XXX: This field should be removed when versioning is implemented.
-    count = serializers.IntegerField()
-
     class Meta(ProblemResponseAnswerDistributionSerializer.Meta):
         model = models.ProblemFirstLastResponseAnswerDistribution
         fields = ProblemResponseAnswerDistributionSerializer.Meta.fields + (
@@ -114,22 +111,7 @@ class ProblemFirstLastResponseAnswerDistributionSerializer(ProblemResponseAnswer
             'last_response_count',
         )
 
-        # XXX: This should be uncommented when versioning is implemented.
-        # fields = tuple([field for field in fields if field != 'count'])
-
-    # XXX: This duplicate field should be removed when correct versioning is implemented.
-    # pylint: disable=super-on-old-class
-    def restore_object(self, attrs, instance=None):
-        """
-        Pops and restores non-model field.
-        """
-
-        count = attrs.pop('count', None)
-        distribution = super(ProblemFirstLastResponseAnswerDistributionSerializer, self).restore_object(
-            attrs, instance)
-        distribution.count = count
-
-        return distribution
+        fields = tuple([field for field in fields if field != 'count'])
 
 
 class ConsolidatedFirstLastAnswerDistributionSerializer(ProblemFirstLastResponseAnswerDistributionSerializer):
@@ -216,6 +198,8 @@ class CourseEnrollmentModeDailySerializer(BaseCourseEnrollmentModelSerializer):
             # Create a transform method for each field
             setattr(self, 'transform_%s' % mode, self._transform_mode)
 
+        fields['cumulative_count'] = serializers.IntegerField(required=True, default=0)
+
         return fields
 
     def _transform_mode(self, _obj, value):
@@ -225,7 +209,7 @@ class CourseEnrollmentModeDailySerializer(BaseCourseEnrollmentModelSerializer):
         model = models.CourseEnrollmentDaily
 
         # Declare the dynamically-created fields here as well so that they will be picked up by Swagger.
-        fields = ['course_id', 'date', 'count', 'created'] + ENROLLMENT_MODES
+        fields = ['course_id', 'date', 'count', 'cumulative_count', 'created'] + ENROLLMENT_MODES
 
 
 class CountrySerializer(serializers.Serializer):
@@ -297,3 +281,28 @@ class CourseActivityWeeklySerializer(serializers.ModelSerializer):
         model = models.CourseActivityWeekly
         # TODO: Add 'posted_forum' here to restore forum data
         fields = ('interval_start', 'interval_end', 'course_id', 'any', 'attempted_problem', 'played_video', 'created')
+
+
+class VideoSerializer(ModelSerializerWithCreatedField):
+    class Meta(object):
+        model = models.Video
+        fields = (
+            'pipeline_video_id',
+            'encoded_module_id',
+            'duration',
+            'segment_length',
+            'users_at_start',
+            'users_at_end',
+            'created'
+        )
+
+
+class VideoTimelineSerializer(ModelSerializerWithCreatedField):
+    class Meta(object):
+        model = models.VideoTimeline
+        fields = (
+            'segment',
+            'num_users',
+            'num_views',
+            'created'
+        )

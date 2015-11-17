@@ -129,19 +129,17 @@ class CourseViewTestCaseMixin(DemoCourseMixin):
         raise NotImplementedError
 
     def assertIntervalFilteringWorks(self, expected_response, start_date, end_date):
-        # If start date is after date of existing data, no data should be returned
+        # If start date is after date of existing data, return a 404
         date = (start_date + datetime.timedelta(days=30)).strftime(settings.DATE_FORMAT)
         response = self.authenticated_get(
             '%scourses/%s%s?start_date=%s' % (self.api_root_path, self.course_id, self.path, date))
-        self.assertEquals(response.status_code, 200)
-        self.assertListEqual([], response.data)
+        self.assertEquals(response.status_code, 404)
 
-        # If end date is before date of existing data, no data should be returned
+        # If end date is before date of existing data, return a 404
         date = (start_date - datetime.timedelta(days=30)).strftime(settings.DATE_FORMAT)
         response = self.authenticated_get(
             '%scourses/%s%s?end_date=%s' % (self.api_root_path, self.course_id, self.path, date))
-        self.assertEquals(response.status_code, 200)
-        self.assertListEqual([], response.data)
+        self.assertEquals(response.status_code, 404)
 
         # If data falls in date range, data should be returned
         start_date = start_date.strftime(settings.DATE_FORMAT)
@@ -428,16 +426,22 @@ class CourseEnrollmentModeViewTests(CourseEnrollmentViewTestCaseMixin, DefaultFi
         arg = args[0]
         response = self.serialize_enrollment(arg)
         total = 0
+        cumulative = 0
 
         for ce in args:
             total += ce.count
+            cumulative += ce.cumulative_count
             response[ce.mode] = ce.count
 
         # Merge the honor and audit modes
         response[enrollment_modes.HONOR] += response[enrollment_modes.AUDIT]
         del response[enrollment_modes.AUDIT]
 
+        response[enrollment_modes.PROFESSIONAL] += response[enrollment_modes.PROFESSIONAL_NO_ID]
+        del response[enrollment_modes.PROFESSIONAL_NO_ID]
+
         response[u'count'] = total
+        response[u'cumulative_count'] = cumulative
 
         return [response]
 
@@ -445,11 +449,13 @@ class CourseEnrollmentModeViewTests(CourseEnrollmentViewTestCaseMixin, DefaultFi
         self.destroy_data()
 
         # Create a single entry for a single enrollment mode
-        enrollment = G(self.model, course_id=self.course_id, date=self.date, mode=enrollment_modes.AUDIT, count=1)
+        enrollment = G(self.model, course_id=self.course_id, date=self.date, mode=enrollment_modes.AUDIT,
+                       count=1, cumulative_count=100)
 
         # Create the expected data
         modes = list(enrollment_modes.ALL)
         modes.remove(enrollment_modes.AUDIT)
+        modes.remove(enrollment_modes.PROFESSIONAL_NO_ID)
 
         expected = {}
         for mode in modes:
@@ -457,6 +463,7 @@ class CourseEnrollmentModeViewTests(CourseEnrollmentViewTestCaseMixin, DefaultFi
 
         expected.update(self.serialize_enrollment(enrollment))
         expected[u'count'] = 1
+        expected[u'cumulative_count'] = 100
 
         expected = [expected]
         self.assertViewReturnsExpectedData(expected)
@@ -606,19 +613,20 @@ class CourseProblemsListViewTests(DemoCourseMixin, TestCaseWithAuthentication):
         alt_module_id = 'i4x://test/problem/2'
         created = datetime.datetime.utcnow()
         alt_created = created + datetime.timedelta(seconds=2)
+        date_time_format = '%Y-%m-%d %H:%M:%S'
 
         o1 = G(models.ProblemFirstLastResponseAnswerDistribution, course_id=self.course_id, module_id=module_id,
-               correct=True, last_response_count=100, created=created)
+               correct=True, last_response_count=100, created=created.strftime(date_time_format))
         o2 = G(models.ProblemFirstLastResponseAnswerDistribution, course_id=self.course_id, module_id=alt_module_id,
-               correct=True, last_response_count=100, created=created)
+               correct=True, last_response_count=100, created=created.strftime(date_time_format))
         o3 = G(models.ProblemFirstLastResponseAnswerDistribution, course_id=self.course_id, module_id=module_id,
-               correct=False, last_response_count=200, created=alt_created)
+               correct=False, last_response_count=200, created=alt_created.strftime(date_time_format))
 
         expected = [
             {
                 'module_id': module_id,
-                'total_submissions': 300,
-                'correct_submissions': 100,
+                'total_submissions': 150,
+                'correct_submissions': 50,
                 'part_ids': [o1.part_id, o3.part_id],
                 'created': alt_created.strftime(settings.DATETIME_FORMAT)
             },
@@ -640,5 +648,63 @@ class CourseProblemsListViewTests(DemoCourseMixin, TestCaseWithAuthentication):
         The view should return 404 if no data exists for the course.
         """
 
+        response = self._get_data('foo/bar/course')
+        self.assertEquals(response.status_code, 404)
+
+
+class CourseVideosListViewTests(DemoCourseMixin, TestCaseWithAuthentication):
+    def _get_data(self, course_id=None):
+        """
+        Retrieve videos for a specified course.
+        """
+        course_id = course_id or self.course_id
+        url = '/api/v0/courses/{}/videos/'.format(course_id)
+        return self.authenticated_get(url)
+
+    def test_get(self):
+        # add a blank row, which shouldn't be included in results
+        G(models.Video)
+
+        module_id = 'i4x-test-video-1'
+        video_id = 'v1d30'
+        created = datetime.datetime.utcnow()
+        date_time_format = '%Y-%m-%d %H:%M:%S'
+        G(models.Video, course_id=self.course_id, encoded_module_id=module_id,
+          pipeline_video_id=video_id, duration=100, segment_length=1, users_at_start=50, users_at_end=10,
+          created=created.strftime(date_time_format))
+
+        alt_module_id = 'i4x-test-video-2'
+        alt_video_id = 'a1d30'
+        alt_created = created + datetime.timedelta(seconds=10)
+        G(models.Video, course_id=self.course_id, encoded_module_id=alt_module_id,
+          pipeline_video_id=alt_video_id, duration=200, segment_length=5, users_at_start=1050, users_at_end=50,
+          created=alt_created.strftime(date_time_format))
+
+        expected = [
+            {
+                'duration': 100,
+                'encoded_module_id': module_id,
+                'pipeline_video_id': video_id,
+                'segment_length': 1,
+                'users_at_start': 50,
+                'users_at_end': 10,
+                'created': created.strftime(settings.DATETIME_FORMAT)
+            },
+            {
+                'duration': 200,
+                'encoded_module_id': alt_module_id,
+                'pipeline_video_id': alt_video_id,
+                'segment_length': 5,
+                'users_at_start': 1050,
+                'users_at_end': 50,
+                'created': alt_created.strftime(settings.DATETIME_FORMAT)
+            }
+        ]
+
+        response = self._get_data(self.course_id)
+        self.assertEquals(response.status_code, 200)
+        self.assertListEqual(response.data, expected)
+
+    def test_get_404(self):
         response = self._get_data('foo/bar/course')
         self.assertEquals(response.status_code, 404)
