@@ -96,11 +96,6 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
         self.assertEquals(response.status_code, 200)
 
         expected_data = models.ProblemFirstLastResponseAnswerDistribution.objects.filter(module_id=self.module_id2)
-
-        # XXX: Remove when versioning is implemented.
-        for datum in expected_data:
-            datum.count = datum.last_response_count
-
         expected_data = [ProblemFirstLastResponseAnswerDistributionSerializer(answer).data for answer in expected_data]
 
         for answer in expected_data:
@@ -121,10 +116,6 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
 
         expected_data[0].first_response_count += self.ad2.first_response_count
         expected_data[0].last_response_count += self.ad2.last_response_count
-
-        # XXX: Remove when versioning is implemented.
-        for datum in expected_data:
-            datum.count = datum.last_response_count
 
         expected_data = [ProblemFirstLastResponseAnswerDistributionSerializer(answer).data for answer in expected_data]
 

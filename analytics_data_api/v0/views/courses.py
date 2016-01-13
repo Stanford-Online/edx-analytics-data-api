@@ -21,6 +21,7 @@ class BaseCourseView(generics.ListAPIView):
     end_date = None
     course_id = None
     slug = None
+    allow_empty = False
 
     def get(self, request, *args, **kwargs):
         self.course_id = self.kwargs.get('course_id')
@@ -41,17 +42,10 @@ class BaseCourseView(generics.ListAPIView):
 
         return super(BaseCourseView, self).get(request, *args, **kwargs)
 
-    def verify_course_exists_or_404(self, course_id):
-        if self.model.objects.filter(course_id=course_id).exists():
-            return True
-
-        raise Http404
-
     def apply_date_filtering(self, queryset):
         raise NotImplementedError
 
     def get_queryset(self):
-        self.verify_course_exists_or_404(self.course_id)
         queryset = self.model.objects.filter(course_id=self.course_id)
         queryset = self.apply_date_filtering(queryset)
         return queryset
@@ -472,6 +466,7 @@ class CourseEnrollmentModeView(BaseCourseEnrollmentView):
             * course_id: The ID of the course for which data is returned.
             * date: The date for which the enrollment count was computed.
             * count: The total count of enrolled users.
+            * cumulative_count: The cumulative count of users ever enrolled.
             * created: The date the counts were computed.
             * honor: The number of users enrolled in honor code mode.
             * professional: The number of users enrolled in professional mode.
@@ -509,17 +504,24 @@ class CourseEnrollmentModeView(BaseCourseEnrollmentView):
             }
 
             total = 0
+            cumulative_total = 0
 
             for enrollment in group:
                 mode = enrollment.mode
                 item[mode] = enrollment.count
                 item[u'created'] = max(enrollment.created, item[u'created']) if item[u'created'] else enrollment.created
                 total += enrollment.count
+                cumulative_total += enrollment.cumulative_count
 
             # Merge audit and honor
             item[enrollment_modes.HONOR] = item.get(enrollment_modes.HONOR, 0) + item.pop(enrollment_modes.AUDIT, 0)
 
+            # Merge professional with non verified professional
+            item[enrollment_modes.PROFESSIONAL] = \
+                item.get(enrollment_modes.PROFESSIONAL, 0) + item.pop(enrollment_modes.PROFESSIONAL_NO_ID, 0)
+
             item[u'count'] = total
+            item[u'cumulative_count'] = cumulative_total
 
             formatted_data.append(item)
 
@@ -634,11 +636,14 @@ class ProblemsListView(BaseCourseView):
     allow_empty = False
 
     def get_queryset(self):
+        # last_response_count is the number of submissions for the problem part and must
+        # be divided by the number of problem parts to get the problem submission rather
+        # than the problem *part* submissions
         aggregation_query = """
 SELECT
     module_id,
-    SUM(last_response_count) AS total_submissions,
-    SUM(CASE WHEN correct=1 THEN last_response_count ELSE 0 END) AS correct_submissions,
+    SUM(last_response_count)/COUNT(DISTINCT part_id) AS total_submissions,
+    SUM(CASE WHEN correct=1 THEN last_response_count ELSE 0 END)/COUNT(DISTINCT part_id) AS correct_submissions,
     GROUP_CONCAT(DISTINCT part_id) AS part_ids,
     MAX(created) AS created
 FROM answer_distribution
@@ -679,6 +684,37 @@ GROUP BY module_id;
             # Rather than write custom SQL for the SQLite backend, simply parse the timestamp.
             created = row['created']
             if not isinstance(created, datetime.datetime):
-                row['created'] = datetime.datetime.strptime(created, '%Y-%m-%d %H:%M:%S.%f')
+                row['created'] = datetime.datetime.strptime(created, '%Y-%m-%d %H:%M:%S')
 
         return rows
+
+
+class VideosListView(BaseCourseView):
+    """
+    Get data for the videos in a course.
+
+    **Example request**
+
+        GET /api/v0/courses/{course_id}/videos/
+
+    **Response Values**
+
+        Returns a collection of video views and metadata for each video.
+        For each video, the collection the following data.
+
+            * video_id: The ID of the video.
+            * encoded_module_id: The encoded module ID.
+            * duration: The length of the video in seconds.
+            * segment_length: The length of each segment of the video in seconds.
+            * users_at_start: The number of viewers at the start of the video.
+            * users_at_end: The number of viewers at the end of the video.
+            * created: The date the video data was updated.
+    """
+
+    serializer_class = serializers.VideoSerializer
+    allow_empty = False
+    model = models.Video
+
+    def apply_date_filtering(self, queryset):
+        # no date filtering for videos -- just return the queryset
+        return queryset
