@@ -1,9 +1,19 @@
-Django==1.7.5 						# BSD License
-Markdown==2.6    					# BSD
-django-model-utils==2.2 			# BSD
-djangorestframework==2.4.4			# BSD
-ipython==2.4.1						# BSD
-django-rest-swagger==0.2.8  		# BSD
-djangorestframework-csv==1.3.3		# BSD
-django-countries==3.2               # MIT
--e git+https://github.com/edx/opaque-keys.git@d45d0bd8d64c69531be69178b9505b5d38806ce0#egg=opaque-keys
+boto==2.42.0                        # MIT
+Django==1.11.5						# BSD License
+django-countries==4.5               # MIT
+djangorestframework==3.6.2			# BSD
+django-rest-swagger==2.1.2  		# BSD
+djangorestframework-csv==2.0.0		# BSD
+django-storages==1.5.2              # BSD
+elasticsearch-dsl==0.0.11           # Apache 2.0
+ordered-set==2.0.2                  # MIT
+tqdm==4.11.2                        # MIT
+urllib3==1.21.1                     # MIT
+
+# markdown is used by swagger for rendering the api docs
+Markdown==2.6.6    					# BSD
+
+edx-ccx-keys==0.2.1
+edx-django-release-util==0.3.0
+edx-opaque-keys==0.4.0
+edx-rest-api-client==1.4.0          # Apache 2.0

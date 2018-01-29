@@ -2,6 +2,7 @@
 API methods for module level data.
 """
 
+from collections import defaultdict
 from itertools import groupby
 
 from django.db import OperationalError
@@ -19,7 +20,9 @@ from analytics_data_api.v0.serializers import (
     GradeDistributionSerializer,
     SequentialOpenDistributionSerializer,
 )
-from analytics_data_api.utils import consolidate_answers
+from analytics_data_api.utils import matching_tuple
+
+from analytics_data_api.v0.views.utils import raise_404_if_none
 
 
 class ProblemResponseAnswerDistributionView(generics.ListAPIView):
@@ -55,6 +58,49 @@ class ProblemResponseAnswerDistributionView(generics.ListAPIView):
     serializer_class = ConsolidatedAnswerDistributionSerializer
     allow_empty = False
 
+    @classmethod
+    def consolidate_answers(cls, problem):
+        """ Attempt to consolidate erroneously randomized answers. """
+        answer_sets = defaultdict(list)
+        match_tuple_sets = defaultdict(set)
+
+        for answer in problem:
+            answer.consolidated_variant = False
+            answer_sets[answer.value_id].append(answer)
+            match_tuple_sets[answer.value_id].add(matching_tuple(answer))
+
+        # If a part has more than one unique tuple of matching fields, do not consolidate.
+        for _, match_tuple_set in match_tuple_sets.iteritems():
+            if len(match_tuple_set) > 1:
+                return problem
+
+        consolidated_answers = []
+
+        for _, answers in answer_sets.iteritems():
+            consolidated_answer = None
+
+            if len(answers) == 1:
+                consolidated_answers.append(answers[0])
+                continue
+
+            for answer in answers:
+                if consolidated_answer:
+                    if isinstance(consolidated_answer, ProblemResponseAnswerDistribution):
+                        consolidated_answer.count += answer.count
+                    else:
+                        consolidated_answer.first_response_count += answer.first_response_count
+                        consolidated_answer.last_response_count += answer.last_response_count
+                else:
+                    consolidated_answer = answer
+
+                    consolidated_answer.variant = None
+                    consolidated_answer.consolidated_variant = True
+
+            consolidated_answers.append(consolidated_answer)
+
+        return consolidated_answers
+
+    @raise_404_if_none
     def get_queryset(self):
         """Select all the answer distribution response having to do with this usage of the problem."""
         problem_id = self.kwargs.get('problem_id')
@@ -70,7 +116,7 @@ class ProblemResponseAnswerDistributionView(generics.ListAPIView):
         consolidated_rows = []
 
         for _, part in groupby(queryset, lambda x: x.part_id):
-            consolidated_rows += consolidate_answers(list(part))
+            consolidated_rows += self.consolidate_answers(list(part))
 
         # XXX: Remove this loop when proper versioning is implemented
         for row in consolidated_rows:
@@ -105,6 +151,7 @@ class GradeDistributionView(generics.ListAPIView):
     serializer_class = GradeDistributionSerializer
     allow_empty = False
 
+    @raise_404_if_none
     def get_queryset(self):
         """Select all grade distributions for a particular module"""
         problem_id = self.kwargs.get('problem_id')
@@ -133,6 +180,7 @@ class SequentialOpenDistributionView(generics.ListAPIView):
     serializer_class = SequentialOpenDistributionSerializer
     allow_empty = False
 
+    @raise_404_if_none
     def get_queryset(self):
         """Select the view count for a specific module"""
         module_id = self.kwargs.get('module_id')

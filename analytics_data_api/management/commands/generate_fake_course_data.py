@@ -2,13 +2,18 @@
 
 import datetime
 import logging
-from optparse import make_option
+import math
 import random
 
+from tqdm import tqdm
+
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from analytics_data_api.v0 import models
 
+from analytics_data_api.constants import engagement_events
+from analytics_data_api.v0 import models
+from analyticsdataserver.clients import CourseBlocksApiClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,10 +35,36 @@ def get_count(start):
 
 class Command(BaseCommand):
     help = 'Generate fake data'
-    option_list = BaseCommand.option_list + (
-        make_option('-n', '--num-weeks', action='store', type="int", dest='num_weeks',
-                    help='"Number of weeks worth of data to generate.'),
-    )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--num-weeks',
+            action='store',
+            type=int,
+            dest='num_weeks',
+            help='Number of weeks worth of data to generate.',
+        )
+        parser.add_argument(
+            '--course-id',
+            action='store',
+            dest='course_id',
+            default='course-v1:edX+DemoX+Demo_Course',
+            help='Course ID for which to generate fake data',
+        )
+        parser.add_argument(
+            '--username',
+            action='store',
+            dest='username',
+            default='ed_xavier',
+            help='Username for which to generate fake data',
+        )
+        parser.add_argument(
+            '--no-videos',
+            action='store_false',
+            dest='videos',
+            default=True,
+            help='Disables pulling video ids from the LMS server to generate fake video data and instead uses fake ids.'
+        )
 
     def generate_daily_data(self, course_id, start_date, end_date):
         # Use the preset ratios below to generate data in the specified demographics
@@ -66,9 +97,10 @@ class Command(BaseCommand):
 
         enrollment_mode_ratios = {
             'audit': 0.15,
-            'honor': 0.35,
+            'credit': 0.15,
+            'honor': 0.25,
             'professional': 0.10,
-            'verified': 0.40
+            'verified': 0.35
         }
 
         # Generate birth year ratios
@@ -82,7 +114,9 @@ class Command(BaseCommand):
                       models.CourseEnrollmentByGender,
                       models.CourseEnrollmentByEducation,
                       models.CourseEnrollmentByBirthYear,
-                      models.CourseEnrollmentByCountry]:
+                      models.CourseEnrollmentByCountry,
+                      models.CourseMetaSummaryEnrollment,
+                      models.CourseProgramMetadata]:
             model.objects.all().delete()
 
         logger.info("Deleted all daily course enrollment data.")
@@ -93,6 +127,7 @@ class Command(BaseCommand):
         date = start_date
         cumulative_count = 0
 
+        progress = tqdm(total=(end_date - date).days + 2)
         while date <= end_date:
             daily_total = get_count(daily_total)
             models.CourseEnrollmentDaily.objects.create(course_id=course_id, date=date, count=daily_total)
@@ -123,8 +158,26 @@ class Command(BaseCommand):
                 models.CourseEnrollmentByBirthYear.objects.create(course_id=course_id, date=date, count=count,
                                                                   birth_year=birth_year)
 
+            progress.update(1)
             date = date + datetime.timedelta(days=1)
 
+        for index, (mode, ratio) in enumerate(enrollment_mode_ratios.iteritems()):
+            count = int(ratio * daily_total)
+            pass_rate = min(random.normalvariate(.45 + (.1 * index), .15), 1.0)
+            cumulative_count = count + random.randint(0, 100)
+            models.CourseMetaSummaryEnrollment.objects.create(
+                course_id=course_id, catalog_course_title='Demo Course', catalog_course='Demo_Course',
+                start_time=timezone.now() - datetime.timedelta(weeks=6),
+                end_time=timezone.now() + datetime.timedelta(weeks=10),
+                pacing_type='self_paced', availability='Starting Soon', enrollment_mode=mode, count=count,
+                cumulative_count=cumulative_count, count_change_7_days=random.randint(-50, 50),
+                passing_users=int(cumulative_count * pass_rate))
+
+        models.CourseProgramMetadata.objects.create(course_id=course_id, program_id='Demo_Program',
+                                                    program_type='Demo', program_title='Demo Program')
+
+        progress.update(1)
+        progress.close()
         logger.info("Done!")
 
     def generate_weekly_data(self, course_id, start_date, end_date):
@@ -139,6 +192,7 @@ class Command(BaseCommand):
 
         logger.info("Generating new weekly course activity data...")
 
+        progress = tqdm(total=math.ceil((end_date - start).days / 7.0))
         while start < end_date:
             active_students = random.randint(100, 4000)
             # End date should occur on Saturday at 23:59:59
@@ -154,39 +208,140 @@ class Command(BaseCommand):
                                                        count=active_students,
                                                        interval_start=start, interval_end=end)
 
+            progress.update(1)
             start = end
 
+        progress.close()
         logger.info("Done!")
 
     def generate_video_timeline_data(self, video_id):
-        logger.info("Deleting video timeline data...")
-        models.VideoTimeline.objects.all().delete()
-
-        logger.info("Generating new video timeline...")
         for segment in range(100):
             active_students = random.randint(100, 4000)
             counts = constrained_sum_sample_pos(2, active_students)
             models.VideoTimeline.objects.create(pipeline_video_id=video_id, segment=segment,
                                                 num_users=counts[0], num_views=counts[1])
 
-        logger.info("Done!")
-
     def generate_video_data(self, course_id, video_id, module_id):
-        logger.info("Deleting course video data...")
-        models.Video.objects.all().delete()
-
-        logger.info("Generating new course videos...")
         users_at_start = 1234
         models.Video.objects.create(course_id=course_id, pipeline_video_id=video_id,
                                     encoded_module_id=module_id, duration=500, segment_length=5,
                                     users_at_start=users_at_start,
                                     users_at_end=random.randint(100, users_at_start))
 
+    def generate_learner_engagement_data(self, course_id, username, start_date, end_date, max_value=100):
+        logger.info("Deleting learner engagement module data...")
+        models.ModuleEngagement.objects.all().delete()
+
+        logger.info("Generating learner engagement module data...")
+        current = start_date
+        progress = tqdm(total=(end_date - start_date).days + 1)
+        while current < end_date:
+            current = current + datetime.timedelta(days=1)
+            for metric in engagement_events.INDIVIDUAL_EVENTS:
+                num_events = random.randint(0, max_value)
+                if num_events:
+                    for _ in xrange(num_events):
+                        count = random.randint(0, max_value / 20)
+                        entity_type = metric.split('_', 1)[0]
+                        event = metric.split('_', 1)[1]
+                        entity_id = 'an-id-{}-{}'.format(entity_type, event)
+                        models.ModuleEngagement.objects.create(
+                            course_id=course_id, username=username, date=current,
+                            entity_type=entity_type, entity_id=entity_id, event=event, count=count)
+            progress.update(1)
+        progress.close()
+        logger.info("Done!")
+
+    def generate_learner_engagement_range_data(self, course_id, start_date, end_date, max_value=100):
+        logger.info("Deleting engagement range data...")
+        models.ModuleEngagementMetricRanges.objects.all().delete()
+
+        logger.info("Generating engagement range data...")
+        for event in engagement_events.EVENTS:
+            low_ceil = random.random() * max_value * 0.5
+            models.ModuleEngagementMetricRanges.objects.create(
+                course_id=course_id, start_date=start_date, end_date=end_date, metric=event,
+                range_type='low', low_value=0, high_value=low_ceil)
+            high_floor = random.random() * max_value * 0.5 + low_ceil
+            models.ModuleEngagementMetricRanges.objects.create(
+                course_id=course_id, start_date=start_date, end_date=end_date, metric=event,
+                range_type='high', low_value=high_floor, high_value=max_value)
+
+    def generate_tags_distribution_data(self, course_id):
+        logger.info("Deleting existed tags distribution data...")
+        models.ProblemsAndTags.objects.all().delete()
+
+        module_id_tpl = 'i4x://test/problem/%d'
+        difficulty_tag = ['Easy', 'Medium', 'Hard']
+        learning_outcome_tag = ['Learned nothing', 'Learned a few things', 'Learned everything']
+        problems_num = 50
+        chance_difficulty = 5
+
+        logger.info("Generating new tags distribution data...")
+        for i in xrange(problems_num):
+            module_id = module_id_tpl % i
+            total_submissions = random.randint(0, 100)
+            correct_submissions = random.randint(0, total_submissions)
+
+            models.ProblemsAndTags.objects.create(
+                course_id=course_id, module_id=module_id,
+                tag_name='learning_outcome', tag_value=random.choice(learning_outcome_tag),
+                total_submissions=total_submissions, correct_submissions=correct_submissions
+            )
+            if random.randint(0, chance_difficulty) != chance_difficulty:
+                models.ProblemsAndTags.objects.create(
+                    course_id=course_id, module_id=module_id,
+                    tag_name='difficulty', tag_value=random.choice(difficulty_tag),
+                    total_submissions=total_submissions, correct_submissions=correct_submissions
+                )
+
+    def fetch_videos_from_course_blocks(self, course_id):
+        logger.info("Fetching video ids from Course Blocks API...")
+        try:
+            api_base_url = settings.LMS_BASE_URL + 'api/courses/v1/'
+        except AttributeError:
+            logger.warning("LMS_BASE_URL is not configured! Cannot get video ids.")
+            return None
+        logger.info("Assuming the Course Blocks API is hosted at: %s", api_base_url)
+
+        blocks_api = CourseBlocksApiClient(api_base_url, settings.COURSE_BLOCK_API_AUTH_TOKEN, timeout=5)
+        return blocks_api.all_videos(course_id)
+
+    def generate_all_video_data(self, course_id, videos):
+        logger.info("Deleting course video data...")
+        models.Video.objects.all().delete()
+
+        logger.info("Deleting video timeline data...")
+        models.VideoTimeline.objects.all().delete()
+
+        logger.info("Generating new course videos and video timeline data...")
+        for video in tqdm(videos):
+            self.generate_video_data(course_id, video['video_id'], video['video_module_id'])
+            self.generate_video_timeline_data(video['video_id'])
+
+        logger.info("Done!")
+
+    def fake_video_ids_fallback(self):
+        return [
+            {
+                'video_id': '0fac49ba',
+                'video_module_id': 'i4x-edX-DemoX-video-5c90cffecd9b48b188cbfea176bf7fe9'
+            }
+        ]
+
     def handle(self, *args, **options):
-        course_id = 'edX/DemoX/Demo_Course'
-        video_id = '0fac49ba'
-        video_module_id = 'i4x-edX-DemoX-video-5c90cffecd9b48b188cbfea176bf7fe9'
-        start_date = datetime.datetime(year=2015, month=1, day=1, tzinfo=timezone.utc)
+        course_id = options['course_id']
+        username = options['username']
+        videos = options['videos']
+        if videos:
+            video_ids = self.fetch_videos_from_course_blocks(course_id)
+            if not video_ids:
+                logger.warning("Falling back to fake video id due to Course Blocks API failure...")
+                video_ids = self.fake_video_ids_fallback()
+        else:
+            logger.info("Option to generate videos with ids pulled from the LMS is disabled, using fake video ids...")
+            video_ids = self.fake_video_ids_fallback()
+        start_date = timezone.now() - datetime.timedelta(weeks=10)
 
         num_weeks = options['num_weeks']
         if num_weeks:
@@ -197,5 +352,7 @@ class Command(BaseCommand):
         logger.info("Generating data for %s...", course_id)
         self.generate_weekly_data(course_id, start_date, end_date)
         self.generate_daily_data(course_id, start_date, end_date)
-        self.generate_video_data(course_id, video_id, video_module_id)
-        self.generate_video_timeline_data(video_id)
+        self.generate_all_video_data(course_id, video_ids)
+        self.generate_learner_engagement_data(course_id, username, start_date, end_date)
+        self.generate_learner_engagement_range_data(course_id, start_date.date(), end_date.date())
+        self.generate_tags_distribution_data(course_id)

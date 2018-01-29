@@ -9,11 +9,16 @@ from django.db.models import Max
 from django.http import Http404
 from django.utils.timezone import make_aware, utc
 from rest_framework import generics
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from opaque_keys.edx.keys import CourseKey
 
 from analytics_data_api.constants import enrollment_modes
-from analytics_data_api.utils import dictfetchall
+from analytics_data_api.utils import dictfetchall, get_course_report_download_details
 from analytics_data_api.v0 import models, serializers
+from analytics_data_api.v0.exceptions import ReportFileNotFoundError
+
+from analytics_data_api.v0.views.utils import raise_404_if_none
 
 
 class BaseCourseView(generics.ListAPIView):
@@ -25,26 +30,28 @@ class BaseCourseView(generics.ListAPIView):
 
     def get(self, request, *args, **kwargs):
         self.course_id = self.kwargs.get('course_id')
-        start_date = request.QUERY_PARAMS.get('start_date')
-        end_date = request.QUERY_PARAMS.get('end_date')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
         timezone = utc
 
-        if start_date:
-            start_date = datetime.datetime.strptime(start_date, settings.DATE_FORMAT)
-            start_date = make_aware(start_date, timezone)
-
-        if end_date:
-            end_date = datetime.datetime.strptime(end_date, settings.DATE_FORMAT)
-            end_date = make_aware(end_date, timezone)
-
-        self.start_date = start_date
-        self.end_date = end_date
+        self.start_date = self.parse_date(start_date, timezone)
+        self.end_date = self.parse_date(end_date, timezone)
 
         return super(BaseCourseView, self).get(request, *args, **kwargs)
+
+    def parse_date(self, date, timezone):
+        if date:
+            try:
+                date = datetime.datetime.strptime(date, settings.DATETIME_FORMAT)
+            except ValueError:
+                date = datetime.datetime.strptime(date, settings.DATE_FORMAT)
+            date = make_aware(date, timezone)
+        return date
 
     def apply_date_filtering(self, queryset):
         raise NotImplementedError
 
+    @raise_404_if_none
     def get_queryset(self):
         queryset = self.model.objects.filter(course_id=self.course_id)
         queryset = self.apply_date_filtering(queryset)
@@ -231,14 +238,14 @@ class CourseActivityMostRecentWeekView(generics.RetrieveAPIView):
         """ Retrieve the activity type from the query string. """
 
         # Support the old label param
-        activity_type = self.request.QUERY_PARAMS.get('label', None)
+        activity_type = self.request.query_params.get('label', None)
 
-        activity_type = activity_type or self.request.QUERY_PARAMS.get('activity_type', self.DEFAULT_ACTIVITY_TYPE)
+        activity_type = activity_type or self.request.query_params.get('activity_type', self.DEFAULT_ACTIVITY_TYPE)
         activity_type = self._format_activity_type(activity_type)
 
         return activity_type
 
-    def get_object(self, queryset=None):
+    def get_object(self):
         """Select the activity report for the given course and activity type."""
 
         warnings.warn('CourseActivityMostRecentWeekView has been deprecated! Use CourseActivityWeeklyView instead.',
@@ -399,7 +406,11 @@ class CourseEnrollmentByGenderView(BaseCourseEnrollmentView):
             item = {
                 u'course_id': key[0],
                 u'date': key[1],
-                u'created': None
+                u'created': None,
+                u'male': 0,
+                u'female': 0,
+                u'other': 0,
+                u'unknown': 0
             }
 
             for enrollment in group:
@@ -465,12 +476,12 @@ class CourseEnrollmentModeView(BaseCourseEnrollmentView):
 
             * course_id: The ID of the course for which data is returned.
             * date: The date for which the enrollment count was computed.
-            * count: The total count of enrolled users.
-            * cumulative_count: The cumulative count of users ever enrolled.
+            * count: The count of currently enrolled users.
+            * cumulative_count: The cumulative total of all users ever enrolled.
             * created: The date the counts were computed.
-            * honor: The number of users enrolled in honor code mode.
-            * professional: The number of users enrolled in professional mode.
-            * verified: The number of users enrolled in verified mode.
+            * honor: The number of users currently enrolled in honor code mode.
+            * professional: The number of users currently enrolled in professional mode.
+            * verified: The number of users currently enrolled in verified mode.
 
     **Parameters**
 
@@ -512,9 +523,6 @@ class CourseEnrollmentModeView(BaseCourseEnrollmentView):
                 item[u'created'] = max(enrollment.created, item[u'created']) if item[u'created'] else enrollment.created
                 total += enrollment.count
                 cumulative_total += enrollment.cumulative_count
-
-            # Merge audit and honor
-            item[enrollment_modes.HONOR] = item.get(enrollment_modes.HONOR, 0) + item.pop(enrollment_modes.AUDIT, 0)
 
             # Merge professional with non verified professional
             item[enrollment_modes.PROFESSIONAL] = \
@@ -628,13 +636,14 @@ class ProblemsListView(BaseCourseView):
         Returns a collection of submission counts and part IDs for each problem. Each collection contains:
 
             * module_id: The ID of the problem.
-            * total_submissions: Total number of submissions
+            * total_submissions: Total number of submissions.
             * correct_submissions: Total number of *correct* submissions.
-            * part_ids: List of problem part IDs
+            * part_ids: List of problem part IDs.
     """
     serializer_class = serializers.ProblemSerializer
     allow_empty = False
 
+    @raise_404_if_none
     def get_queryset(self):
         # last_response_count is the number of submissions for the problem part and must
         # be divided by the number of problem parts to get the problem submission rather
@@ -689,6 +698,57 @@ GROUP BY module_id;
         return rows
 
 
+# pylint: disable=abstract-method
+class ProblemsAndTagsListView(BaseCourseView):
+    """
+    Get the problems with the connected tags.
+
+    **Example request**
+
+        GET /api/v0/courses/{course_id}/problems_and_tags/
+
+    **Response Values**
+
+        Returns a collection of submission counts and tags for each problem. Each collection contains:
+
+            * module_id: The ID of the problem.
+            * total_submissions: Total number of submissions.
+            * correct_submissions: Total number of *correct* submissions.
+            * tags: Dictionary that contains pairs "tag key: [tag value 1, tag value 2, ..., tag value N]".
+    """
+    serializer_class = serializers.ProblemsAndTagsSerializer
+    allow_empty = False
+    model = models.ProblemsAndTags
+
+    @raise_404_if_none
+    def get_queryset(self):
+        queryset = self.model.objects.filter(course_id=self.course_id)
+        items = queryset.all()
+
+        result = {}
+
+        for v in items:
+            if v.module_id in result:
+                if v.tag_name not in result[v.module_id]['tags']:
+                    result[v.module_id]['tags'][v.tag_name] = []
+                result[v.module_id]['tags'][v.tag_name].append(v.tag_value)
+                result[v.module_id]['tags'][v.tag_name].sort()
+                if result[v.module_id]['created'] < v.created:
+                    result[v.module_id]['created'] = v.created
+            else:
+                result[v.module_id] = {
+                    'module_id': v.module_id,
+                    'total_submissions': v.total_submissions,
+                    'correct_submissions': v.correct_submissions,
+                    'tags': {
+                        v.tag_name: [v.tag_value]
+                    },
+                    'created': v.created
+                }
+
+        return result.values()
+
+
 class VideosListView(BaseCourseView):
     """
     Get data for the videos in a course.
@@ -718,3 +778,35 @@ class VideosListView(BaseCourseView):
     def apply_date_filtering(self, queryset):
         # no date filtering for videos -- just return the queryset
         return queryset
+
+
+class ReportDownloadView(APIView):
+    """
+    Get information needed to download a CSV report
+
+    **Example request**
+
+        GET /api/v0/courses/{course_id}/reports/{report_name}/
+
+    **Response Values**
+
+        Returns a single object with data about the report, with the following data:
+
+            * course_id: The ID of the course
+            * report_name: The name of the report
+            * download_url: The Internet location from which the report can be downloaded
+
+        The object may also return these items, if supported by the storage backend:
+
+            * last_modified: The date the report was last updated
+            * expiration_date: The date through which the link will be valid
+            * file_size: The size in bytes of the CSV download
+    """
+    enabled_reports = settings.ENABLED_REPORT_IDENTIFIERS
+
+    def get(self, _request, course_id, report_name):
+        if report_name in self.enabled_reports:
+            response = get_course_report_download_details(course_id, report_name)
+            return Response(response)
+        else:
+            raise ReportFileNotFoundError(course_id=course_id, report_name=report_name)
