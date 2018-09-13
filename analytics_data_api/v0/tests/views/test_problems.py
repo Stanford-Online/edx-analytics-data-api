@@ -123,7 +123,6 @@ class AnswerDistributionTests(TestCaseWithAuthentication):
 
         expected_data[0]['variant'] = None
         expected_data[0]['consolidated_variant'] = True
-
         expected_data[1]['consolidated_variant'] = False
 
         response.data = [json.dumps(answer) for answer in response.data]
