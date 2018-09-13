@@ -1,8 +1,8 @@
-from django.conf.urls import patterns, url
+from django.conf.urls import url
 
+from analytics_data_api.v0.urls import COURSE_ID_PATTERN
 from analytics_data_api.v0.views import courses as views
 
-COURSE_ID_PATTERN = r'(?P<course_id>[^/+]+[/+][^/+]+[/+][^/]+)'
 COURSE_URLS = [
     ('activity', views.CourseActivityWeeklyView, 'activity'),
     ('recent_activity', views.CourseActivityMostRecentWeekView, 'recent_activity'),
@@ -13,11 +13,13 @@ COURSE_URLS = [
     ('enrollment/gender', views.CourseEnrollmentByGenderView, 'enrollment_by_gender'),
     ('enrollment/location', views.CourseEnrollmentByLocationView, 'enrollment_by_location'),
     ('problems', views.ProblemsListView, 'problems'),
-    ('videos', views.VideosListView, 'videos')
+    ('problems_and_tags', views.ProblemsAndTagsListView, 'problems_and_tags'),
+    ('videos', views.VideosListView, 'videos'),
+    ('reports/(?P<report_name>[a-zA-Z0-9_]+)', views.ReportDownloadView, 'reports'),
 ]
 
 urlpatterns = []
 
 for path, view, name in COURSE_URLS:
     regex = r'^{0}/{1}/$'.format(COURSE_ID_PATTERN, path)
-    urlpatterns += patterns('', url(regex, view.as_view(), name=name))
+    urlpatterns.append(url(regex, view.as_view(), name=name))

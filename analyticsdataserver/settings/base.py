@@ -1,5 +1,6 @@
 """Common settings and globals."""
 
+from os import environ
 from os.path import abspath, basename, dirname, join, normpath
 from sys import stderr
 
@@ -19,9 +20,6 @@ SITE_NAME = basename(DJANGO_ROOT)
 ########## DEBUG CONFIGURATION
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#debug
 DEBUG = False
-
-# See: https://docs.djangoproject.com/en/dev/ref/settings/#template-debug
-TEMPLATE_DEBUG = DEBUG
 ########## END DEBUG CONFIGURATION
 
 
@@ -50,6 +48,21 @@ DATABASES = {
 }
 ########## END DATABASE CONFIGURATION
 
+########## ELASTICSEARCH CONFIGURATION
+ELASTICSEARCH_LEARNERS_HOST = environ.get('ELASTICSEARCH_LEARNERS_HOST', None)
+ELASTICSEARCH_LEARNERS_INDEX = environ.get('ELASTICSEARCH_LEARNERS_INDEX', None)
+ELASTICSEARCH_LEARNERS_UPDATE_INDEX = environ.get('ELASTICSEARCH_LEARNERS_UPDATE_INDEX', None)
+
+# access credentials for signing requests to AWS.
+# For more information see http://docs.aws.amazon.com/general/latest/gr/signing_aws_api_requests.html
+ELASTICSEARCH_AWS_ACCESS_KEY_ID = None
+ELASTICSEARCH_AWS_SECRET_ACCESS_KEY = None
+# override the default elasticsearch connection class and useful for signing certificates
+# e.g. 'analytics_data_api.v0.connections.BotoHttpConnection'
+ELASTICSEARCH_CONNECTION_CLASS = None
+# only needed with BotoHttpConnection, e.g. 'us-east-1'
+ELASTICSEARCH_CONNECTION_DEFAULT_REGION = None
+########## END ELASTICSEARCH CONFIGURATION
 
 ########## GENERAL CONFIGURATION
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#time-zone
@@ -70,15 +83,6 @@ USE_L10N = False
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#use-tz
 USE_TZ = True
 ########## END GENERAL CONFIGURATION
-
-
-########## MEDIA CONFIGURATION
-# See: https://docs.djangoproject.com/en/dev/ref/settings/#media-root
-MEDIA_ROOT = normpath(join(SITE_ROOT, 'media'))
-
-# See: https://docs.djangoproject.com/en/dev/ref/settings/#media-url
-MEDIA_URL = '/media/'
-########## END MEDIA CONFIGURATION
 
 
 ########## STATIC FILE CONFIGURATION
@@ -124,28 +128,28 @@ FIXTURE_DIRS = (
 
 
 ########## TEMPLATE CONFIGURATION
-# See: https://docs.djangoproject.com/en/dev/ref/settings/#template-context-processors
-TEMPLATE_CONTEXT_PROCESSORS = (
-    'django.contrib.auth.context_processors.auth',
-    'django.core.context_processors.debug',
-    'django.core.context_processors.i18n',
-    'django.core.context_processors.media',
-    'django.core.context_processors.static',
-    'django.core.context_processors.tz',
-    'django.contrib.messages.context_processors.messages',
-    'django.core.context_processors.request',
-)
-
-# See: https://docs.djangoproject.com/en/dev/ref/settings/#template-loaders
-TEMPLATE_LOADERS = (
-    'django.template.loaders.filesystem.Loader',
-    'django.template.loaders.app_directories.Loader',
-)
-
-# See: https://docs.djangoproject.com/en/dev/ref/settings/#template-dirs
-TEMPLATE_DIRS = (
-    normpath(join(SITE_ROOT, 'templates')),
-)
+# See: https://docs.djangoproject.com/en/dev/ref/settings/#std:setting-TEMPLATES
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [
+            normpath(join(SITE_ROOT, 'templates')),
+        ],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.contrib.auth.context_processors.auth',
+                'django.template.context_processors.debug',
+                'django.template.context_processors.i18n',
+                'django.template.context_processors.media',
+                'django.template.context_processors.static',
+                'django.template.context_processors.tz',
+                'django.contrib.messages.context_processors.messages',
+                'django.template.context_processors.request',
+            ],
+        },
+    }
+]
 ########## END TEMPLATE CONFIGURATION
 
 
@@ -159,6 +163,13 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'analytics_data_api.v0.middleware.LearnerEngagementTimelineNotFoundErrorMiddleware',
+    'analytics_data_api.v0.middleware.LearnerNotFoundErrorMiddleware',
+    'analytics_data_api.v0.middleware.CourseNotSpecifiedErrorMiddleware',
+    'analytics_data_api.v0.middleware.CourseKeyMalformedErrorMiddleware',
+    'analytics_data_api.v0.middleware.ParameterValueErrorMiddleware',
+    'analytics_data_api.v0.middleware.ReportFileNotFoundErrorMiddleware',
+    'analytics_data_api.v0.middleware.CannotCreateDownloadLinkErrorMiddleware',
 )
 ########## END MIDDLEWARE CONFIGURATION
 
@@ -181,10 +192,12 @@ DJANGO_APPS = (
 )
 
 THIRD_PARTY_APPS = (
+    'release_util',
     'rest_framework',
     'rest_framework.authtoken',
     'rest_framework_swagger',
     'django_countries',
+    'storages'
 )
 
 LOCAL_APPS = (
@@ -213,6 +226,10 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'stream': stderr,
         },
+        'null': {
+            'level': 'DEBUG',
+            'class': 'logging.NullHandler'
+        }
     },
     'loggers': {
         'django': {
@@ -225,6 +242,21 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': True
         },
+        # See https://elasticutils.readthedocs.io/en/latest/debugging.html
+        # INFO-level logs tell us when nodes fail and are resurrected.
+        'elasticsearch': {
+            'handlers': ['console'],
+            'level': 'WARNING'
+        },
+        # elasticsearch.trace logs are fired for every single request
+        # with an INFO or DEBUG level.  They're noisy and not terribly
+        # userful for debugging, so we'll just propagate them to the
+        # 'elasticsearch' log bucket which only accepts 'WARNING'
+        # level logs.
+        'elasticsearch.trace': {
+            'handlers': ['null'],
+            'propagate': False
+        }
     },
 }
 ########## END LOGGING CONFIGURATION
@@ -252,7 +284,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
-        'rest_framework_csv.renderers.CSVRenderer',
+        'analytics_data_api.renderers.PaginatedCsvRenderer',
     )
 }
 ########## END REST FRAMEWORK CONFIGURATION
@@ -265,7 +297,30 @@ DATABASE_ROUTERS = ['analyticsdataserver.router.AnalyticsApiRouter']
 
 ENABLE_ADMIN_SITE = False
 
+# base url to generate link to user api
+LMS_USER_ACCOUNT_BASE_URL = None
+
+# settings for report downloads
+DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+MEDIA_ROOT = normpath(join(SITE_ROOT, 'static', 'reports'))
+MEDIA_URL = 'http://localhost:8100/static/reports/'
+COURSE_REPORT_FILE_LOCATION_TEMPLATE = '{course_id}_{report_name}.csv'
+ENABLED_REPORT_IDENTIFIERS = ('problem_response',)
+
+# Warning: using 0 or None for these can alter the structure of the REST response.
+DEFAULT_PAGE_SIZE = 25
+MAX_PAGE_SIZE = 100
+AGGREGATE_PAGE_SIZE = 10
+
+# Maximum number of GET/POST parameters that will be read before a
+# SuspiciousOperation (TooManyFieldsSent) is raised.
+# None indicates no maximum.
+# We need to set this to None so that we can pass in a large number of Course IDs
+# to course_summaries/
+DATA_UPLOAD_MAX_NUMBER_FIELDS = None
+
 ########## END ANALYTICS DATA API CONFIGURATION
+
 
 DATE_FORMAT = '%Y-%m-%d'
 DATETIME_FORMAT = '%Y-%m-%dT%H%M%S'

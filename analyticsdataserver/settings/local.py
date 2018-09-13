@@ -9,9 +9,6 @@ from analyticsdataserver.settings.base import *
 ########## DEBUG CONFIGURATION
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#debug
 DEBUG = True
-
-# See: https://docs.djangoproject.com/en/dev/ref/settings/#template-debug
-TEMPLATE_DEBUG = DEBUG
 ########## END DEBUG CONFIGURATION
 
 
@@ -54,36 +51,27 @@ CACHES = {
 ########## END CACHE CONFIGURATION
 
 
-########## TOOLBAR CONFIGURATION
-# See: https://github.com/django-debug-toolbar/django-debug-toolbar#installation
-INSTALLED_APPS += (
-    'debug_toolbar',
-    'django_nose',
-)
-
-# See: https://github.com/django-debug-toolbar/django-debug-toolbar#installation
-INTERNAL_IPS = ('127.0.0.1',)
-
-# See: https://github.com/django-debug-toolbar/django-debug-toolbar#installation
-MIDDLEWARE_CLASSES += (
-    'debug_toolbar.middleware.DebugToolbarMiddleware',
-)
-
-# See: https://github.com/django-debug-toolbar/django-debug-toolbar#installation
-DEBUG_TOOLBAR_CONFIG = {
-    'SHOW_TEMPLATE_CONTEXT': True,
-}
-########## END TOOLBAR CONFIGURATION
-
 ########## ANALYTICS DATA API CONFIGURATION
 
 ANALYTICS_DATABASE = 'analytics'
 ENABLE_ADMIN_SITE = True
-
-########## END ANALYTICS DATA API CONFIGURATION
 
 TEST_RUNNER = 'django_nose.NoseTestSuiteRunner'
 
 SWAGGER_SETTINGS = {
     'api_key': 'edx'
 }
+
+# These two settings are used in generate_fake_course_data.py.
+# Replace with correct values to generate local fake video data.
+LMS_BASE_URL = 'http://localhost:8000/'  # the base URL for your running local LMS instance
+COURSE_BLOCK_API_AUTH_TOKEN = 'paste auth token here'  # see README for instructions on how to configure this value
+
+# In Insights, we run this API as a separate service called "analyticsapi" to run acceptance/integration tests. Docker
+# saves the service name as a host in the Insights container so it can reach the API by requesting http://analyticsapi/.
+# However, in Django 1.10.3, the HTTP_HOST header of requests started to be checked against the ALLOWED_HOSTS setting
+# even in DEBUG=True mode. Here, we add the Docker service name "analyticsapi" to the default set of local allowed
+# hosts.
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1', 'analyticsapi']
+
+########## END ANALYTICS DATA API CONFIGURATION

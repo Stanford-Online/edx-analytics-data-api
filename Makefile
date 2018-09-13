@@ -1,13 +1,23 @@
-
 ROOT = $(shell echo "$$PWD")
-COVERAGE = $(ROOT)/build/coverage
+COVERAGE_DIR = $(ROOT)/build/coverage
 PACKAGES = analyticsdataserver analytics_data_api
 DATABASES = default analytics
+ELASTICSEARCH_VERSION = 1.5.2
+ELASTICSEARCH_PORT = 9223
+TEST_SETTINGS = analyticsdataserver.settings.test
 
 .PHONY: requirements develop clean diff.report view.diff.report quality
 
 requirements:
 	pip install -q -r requirements/base.txt
+
+test.install_elasticsearch:
+	curl -L -O https://download.elastic.co/elasticsearch/elasticsearch/elasticsearch-$(ELASTICSEARCH_VERSION).zip
+	unzip elasticsearch-$(ELASTICSEARCH_VERSION).zip
+	echo "http.port: $(ELASTICSEARCH_PORT)" >> elasticsearch-$(ELASTICSEARCH_VERSION)/config/elasticsearch.yml
+
+test.run_elasticsearch:
+	cd elasticsearch-$(ELASTICSEARCH_VERSION) && ./bin/elasticsearch -d --http.port=$(ELASTICSEARCH_PORT)
 
 test.requirements: requirements
 	pip install -q -r requirements/test.txt
@@ -20,22 +30,22 @@ clean:
 	coverage erase
 
 test: clean
-	. ./.test_env && ./manage.py test --settings=analyticsdataserver.settings.test --with-ignore-docstrings \
-		--exclude-dir=analyticsdataserver/settings --with-coverage --cover-inclusive --cover-branches \
-		--cover-html --cover-html-dir=$(COVERAGE)/html/ \
-		--cover-xml --cover-xml-file=$(COVERAGE)/coverage.xml \
-		$(foreach package,$(PACKAGES),--cover-package=$(package)) \
+	coverage run ./manage.py test --settings=$(TEST_SETTINGS) \
+		--with-ignore-docstrings --exclude-dir=analyticsdataserver/settings \
 		$(PACKAGES)
+	export COVERAGE_DIR=$(COVERAGE_DIR) && \
+		coverage html && \
+		coverage xml
 
 diff.report:
-	diff-cover $(COVERAGE)/coverage.xml --html-report $(COVERAGE)/diff_cover.html
-	diff-quality --violations=pep8 --html-report $(COVERAGE)/diff_quality_pep8.html
-	diff-quality --violations=pylint --html-report $(COVERAGE)/diff_quality_pylint.html
+	diff-cover $(COVERAGE_DIR)/coverage.xml --html-report $(COVERAGE_DIR)/diff_cover.html
+	diff-quality --violations=pep8 --html-report $(COVERAGE_DIR)/diff_quality_pep8.html
+	diff-quality --violations=pylint --html-report $(COVERAGE_DIR)/diff_quality_pylint.html
 
 view.diff.report:
-	xdg-open file:///$(COVERAGE)/diff_cover.html
-	xdg-open file:///$(COVERAGE)/diff_quality_pep8.html
-	xdg-open file:///$(COVERAGE)/diff_quality_pylint.html
+	xdg-open file:///$(COVERAGE_DIR)/diff_cover.html
+	xdg-open file:///$(COVERAGE_DIR)/diff_quality_pep8.html
+	xdg-open file:///$(COVERAGE_DIR)/diff_quality_pylint.html
 
 quality:
 	pep8 $(PACKAGES)
@@ -47,7 +57,7 @@ quality:
 validate: test.requirements test quality
 
 migrate:
-	$(foreach db_name,$(DATABASES),./manage.py migrate --noinput --database=$(db_name);)
+	$(foreach db_name,$(DATABASES),./manage.py migrate --noinput --run-syncdb --database=$(db_name);)
 
 loaddata: migrate
 	python manage.py loaddata problem_response_answer_distribution --database=analytics
@@ -56,7 +66,8 @@ loaddata: migrate
 demo: clean requirements loaddata
 	python manage.py set_api_key edx edx
 
-travis: clean requirements migrate
+# Target used by edx-analytics-dashboard during its testing.
+travis: clean test.requirements migrate
 	python manage.py set_api_key edx edx
 	python manage.py loaddata problem_response_answer_distribution --database=analytics
-	python manage.py generate_fake_course_data --num-weeks=1
+	python manage.py generate_fake_course_data --num-weeks=2 --no-videos --course-id "edX/DemoX/Demo_Course"
