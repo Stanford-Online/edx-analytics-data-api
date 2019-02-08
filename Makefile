@@ -6,10 +6,13 @@ ELASTICSEARCH_VERSION = 1.5.2
 ELASTICSEARCH_PORT = 9223
 TEST_SETTINGS = analyticsdataserver.settings.test
 
-.PHONY: requirements develop clean diff.report view.diff.report quality
+.PHONY: requirements develop clean diff.report view.diff.report quality static
 
 requirements:
 	pip install -q -r requirements/base.txt
+
+production-requirements:
+	pip install -r requirements.txt
 
 test.install_elasticsearch:
 	curl -L -O https://download.elastic.co/elasticsearch/elasticsearch/elasticsearch-$(ELASTICSEARCH_VERSION).zip
@@ -23,7 +26,23 @@ test.requirements: requirements
 	pip install -q -r requirements/test.txt
 
 develop: test.requirements
-	pip install -q -r requirements/local.txt
+	pip install -q -r requirements/dev.txt
+
+upgrade: ## update the requirements/*.txt files with the latest packages satisfying requirements/*.in
+	pip install -q -r requirements/pip_tools.txt
+	pip-compile --upgrade -o requirements/pip_tools.txt requirements/pip_tools.in
+	pip-compile --upgrade -o requirements/base.txt requirements/base.in
+	pip-compile --upgrade -o requirements/doc.txt requirements/doc.in
+	pip-compile --upgrade -o requirements/dev.txt requirements/dev.in
+	pip-compile --upgrade -o requirements/production.txt requirements/production.in
+	pip-compile --upgrade -o requirements/test.txt requirements/test.in
+	scripts/post-pip-compile.sh \
+        requirements/pip_tools.txt \
+	    requirements/base.txt \
+	    requirements/doc.txt \
+	    requirements/dev.txt \
+	    requirements/production.txt \
+	    requirements/test.txt
 
 clean:
 	find . -name '*.pyc' -delete
@@ -56,7 +75,13 @@ quality:
 
 validate: test.requirements test quality
 
+static:
+	python manage.py collectstatic --noinput
+
 migrate:
+	./manage.py migrate --noinput --run-syncdb --database=default
+
+migrate-all:
 	$(foreach db_name,$(DATABASES),./manage.py migrate --noinput --run-syncdb --database=$(db_name);)
 
 loaddata: migrate
